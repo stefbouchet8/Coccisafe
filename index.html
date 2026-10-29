@@ -426,6 +426,23 @@ textarea.form-inp{resize:vertical;min-height:72px;}
   </div>
 </div>
 
+<!-- MODAL ACTION CALENDRIER -->
+<div class="overlay" id="ov-action" onclick="closeOv('ov-action')">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📆 Nouvelle action</div>
+    <label class="form-lbl">Titre *</label>
+    <input class="form-inp" id="a-titre" placeholder="Ex : Recette oubliée, Four lavé..."/>
+    <label class="form-lbl">Commentaire (facultatif)</label>
+    <textarea class="form-inp" id="a-comment" placeholder="Détail..."></textarea>
+    <input type="hidden" id="a-date"/>
+    <div class="btn-row">
+      <button class="btn btn-gray" onclick="closeOv('ov-action')">Annuler</button>
+      <button class="btn btn-red" onclick="saveAction()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL NOTE -->
 <div class="overlay" id="ov-note" onclick="closeOv('ov-note')">
   <div class="modal" onclick="event.stopPropagation()">
@@ -561,6 +578,7 @@ let temperatures = load("hb_temperatures", []);
 let recettes = load("hb_recettes", []);
 let recetteTemplates = load("hb_recette_templates", []);
 let hist    = load("hb_hist", []);
+let actions = load("hb_actions", []);
 let curFreq = "quotidien";
 let dlcFilter = "tous";
 let editDlcId = null;
@@ -576,6 +594,7 @@ function persist(){
   localStorage.setItem("hb_recettes",JSON.stringify(recettes));
   localStorage.setItem("hb_recette_templates",JSON.stringify(recetteTemplates));
   localStorage.setItem("hb_hist",JSON.stringify(hist));
+  localStorage.setItem("hb_actions",JSON.stringify(actions));
 }
 
 // ═══════════════════════════════════════════
@@ -630,7 +649,7 @@ function cloudPush(){ clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 6
 function pushNow(){
   if(!cloudDb) return;
   cloudDb.collection(CLOUD_COL).doc(CLOUD_DOC_ID).set({
-    tasks, dlcList, notes, temperatures, recettes, recetteTemplates, hist,
+    tasks, dlcList, notes, temperatures, recettes, recetteTemplates, hist, actions,
     updatedBy: getCurrentUser() || "",
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   }).catch(warnCloud);
@@ -661,6 +680,7 @@ function startCloud(){
     if(d.recettes) recettes = d.recettes;
     if(d.recetteTemplates) recetteTemplates = d.recetteTemplates;
     if(d.hist) hist = d.hist;
+    if(d.actions) actions = d.actions;
     _persistLocal();
     applyingRemote = false;
     renderAll();
@@ -669,6 +689,36 @@ function startCloud(){
 
 // ═══════════════ SERVICE WORKER ═══════════════
 if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+
+// ═══════════════ ACTIONS DU CALENDRIER ═══════════════
+function esc(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function openActionModal(ds){
+  document.getElementById("a-date").value = ds;
+  document.getElementById("a-titre").value = "";
+  document.getElementById("a-comment").value = "";
+  document.getElementById("ov-action").classList.add("open");
+  setTimeout(()=>document.getElementById("a-titre").focus(), 150);
+}
+function saveAction(){
+  const titre = document.getElementById("a-titre").value.trim();
+  if(!titre){ toast("⚠️ Titre requis"); return; }
+  const date = document.getElementById("a-date").value;
+  const commentaire = document.getElementById("a-comment").value.trim();
+  actions.push({id:"a"+Date.now(), date, titre, commentaire, auteur:getCurrentUser()||"", at:new Date().toISOString()});
+  addHist("📆","Action calendrier", titre+" ("+new Date(date+"T12:00:00").toLocaleDateString("fr-FR")+")");
+  closeOv("ov-action");
+  persist();
+  renderAll();
+  toast("✅ Action ajoutée");
+}
+function deleteAction(id){
+  const a = actions.find(x=>x.id===id);
+  if(!a) return;
+  actions = actions.filter(x=>x.id!==id);
+  addHist("🗑️","Action supprimée", a.titre);
+  persist();
+  renderAll();
+}
 
 window.onload = function(){
   checkLogin();
@@ -1020,6 +1070,11 @@ function getEventsForDate(dateStr){
     }
   });
 
+  // Actions ajoutées par l'équipe
+  actions.filter(a=>a.date===dateStr).forEach(a=>{
+    events.push({type:"action", id:a.id, color:"#7C3AED", name:esc(a.titre), sub:"Par "+esc(a.auteur||"?")+(a.commentaire?" — "+esc(a.commentaire):"")});
+  });
+
   // Weekly cleaning — show on Mondays
   if(dow===1){
     events.push({type:"menage", color:"#3B82F6", name:"Nettoyage hebdomadaire", sub:tasks.hebdo.length+" tâches à effectuer", level:"hebdo"});
@@ -1066,6 +1121,8 @@ function getDotsForDate(dateStr){
       if(!dots.includes(s.color)) dots.push(s.color);
     }
   });
+
+  actions.forEach(a=>{ if(a.date===dateStr && !dots.includes("#7C3AED")) dots.push("#7C3AED"); });
 
   if(thisDay >= today){
     if(dow===1 && !dots.includes("#3B82F6")) dots.push("#3B82F6");
@@ -1136,18 +1193,18 @@ function showDayDetail(ds){
   const label = date.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   document.getElementById("cal-detail-title").textContent = "📅 "+label.charAt(0).toUpperCase()+label.slice(1);
   const events = getEventsForDate(ds);
-  if(!events.length){
-    document.getElementById("cal-events").innerHTML = '<div style="color:#9ca3af;font-size:13px;padding:8px 0">Aucun événement ce jour.</div>';
-    return;
-  }
-  document.getElementById("cal-events").innerHTML = events.map(e=>`
+  const body = events.length ? events.map(e=>`
     <div class="cal-event">
       <div class="cal-event-dot" style="background:${e.color}"></div>
-      <div>
+      <div style="flex:1">
         <div class="cal-event-name">${e.name}</div>
         <div class="cal-event-sub">${e.sub}</div>
       </div>
-    </div>`).join("");
+      ${e.type==="action" ? `<button onclick="deleteAction('${e.id}')" style="background:#f3f0ed;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px">✕</button>` : ""}
+    </div>`).join("")
+    : '<div style="color:#9ca3af;font-size:13px;padding:8px 0">Aucun événement ce jour.</div>';
+  document.getElementById("cal-events").innerHTML = body +
+    `<button class="btn btn-red" style="margin-top:12px;width:100%" onclick="openActionModal('${ds}')">+ Ajouter une action</button>`;
 }
 
 // ═══════════════════════════════════════════
