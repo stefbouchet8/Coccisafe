@@ -602,9 +602,11 @@ function loginUser(){
   showUser(); startCloud();
 }
 function logout(){
-  if(!confirm("Se déconnecter ?")) return;
   localStorage.removeItem("coccisafe_user");
-  location.reload();
+  showUser();
+  document.getElementById("user-input").value = "";
+  document.getElementById("login-modal").style.display = "flex";
+  setTimeout(()=>document.getElementById("user-input").focus(), 100);
 }
 
 // ═══════════════ SYNCHRO FIRESTORE (base partagée) ═══════════════
