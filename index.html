@@ -185,6 +185,7 @@ textarea.form-inp{resize:vertical;min-height:72px;}
 .cal-month{font-size:17px;font-weight:800;text-transform:capitalize;}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:16px;}
 .cal-dow{text-align:center;font-size:10px;font-weight:800;color:var(--gray);padding:4px 0;text-transform:uppercase;}
+.cal-name{font-size:10px;font-weight:700;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .cal-day{min-height:52px;background:var(--white);border-radius:10px;padding:5px 4px;cursor:pointer;border:2px solid transparent;transition:all .15s;position:relative;}
 .cal-day:hover{border-color:var(--red);}
 .cal-day.today{border-color:var(--red);background:#FFF5F5;}
@@ -399,15 +400,20 @@ textarea.form-inp{resize:vertical;min-height:72px;}
     <div class="modal-handle"></div>
     <div class="modal-title" id="dlc-modal-t">Ajouter un produit</div>
     <label class="form-lbl">Nom du produit *</label>
-    <input class="form-inp" id="d-nom" placeholder="ex: Entrecôte, Merguez..."/>
+    <input class="form-inp" id="d-nom" list="dl-produits" oninput="onDlcNomInput()" placeholder="ex: Entrecôte, Plat cuisiné..."/>
+    <datalist id="dl-produits"></datalist>
     <div class="form-row">
-      <div><label class="form-lbl">Date limite (DLC) *</label><input class="form-inp" id="d-date" type="date"/></div>
+      <div><label class="form-lbl">Date de préparation</label><input class="form-inp" id="d-prep" type="date" oninput="calcDlc()"/></div>
+      <div><label class="form-lbl">Durée de conservation (jours)</label><input class="form-inp" id="d-duree" type="number" min="0" oninput="calcDlc()" placeholder="ex: 3"/></div>
+    </div>
+    <div class="form-row">
+      <div><label class="form-lbl">DLC *</label><input class="form-inp" id="d-date" type="date"/></div>
       <div><label class="form-lbl">Quantité</label><input class="form-inp" id="d-qte" placeholder="ex: 2 kg"/></div>
     </div>
     <label class="form-lbl">Catégorie</label>
     <select class="form-inp" id="d-cat">
       <option>Bœuf</option><option>Porc</option><option>Agneau</option>
-      <option>Volaille</option><option>Charcuterie</option><option>Saucisserie</option><option>Autre</option>
+      <option>Volaille</option><option>Charcuterie</option><option>Saucisserie</option><option>Plat cuisiné</option><option>Autre</option>
     </select>
     <label class="form-lbl">Notes</label>
     <textarea class="form-inp" id="d-notes" placeholder="Informations complémentaires..."></textarea>
@@ -415,9 +421,9 @@ textarea.form-inp{resize:vertical;min-height:72px;}
     <div class="photo-box" onclick="document.getElementById('d-photo-inp').click()">
       <div style="font-size:28px;margin-bottom:4px">📸</div>
       <div style="font-size:12px;color:#9ca3af">Appuyer pour ajouter une photo</div>
-      <img id="d-photo-prev" class="photo-prev"/>
+      <div id="d-photo-strip" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
     </div>
-    <input id="d-photo-inp" type="file" accept="image/*" style="display:none" onchange="prevPhoto(this,'d-photo-prev')"/>
+    <input id="d-photo-inp" type="file" accept="image/*" multiple style="display:none" onchange="addDlcPhotos(this)"/>
     <div class="btn-row">
       <button class="btn btn-danger" id="d-del-btn" style="display:none" onclick="deleteDlc()">🗑 Suppr.</button>
       <button class="btn btn-gray" onclick="closeOv('ov-dlc')">Annuler</button>
@@ -526,7 +532,7 @@ textarea.form-inp{resize:vertical;min-height:72px;}
 const ZONE_LABELS = {boucherie:"🔪 Boucherie",cuisine:"🍳 Cuisine",froide:"❄️ Chambre froide",machine:"⚙️ Machine",commun:"🏠 Commune"};
 const ZONE_BG = {boucherie:"#FCE7F3",cuisine:"#FEF3C7",froide:"#DBEAFE",machine:"#D1FAE5",commun:"#F3F4F6"};
 const ZONE_TX = {boucherie:"#831843",cuisine:"#92400E",froide:"#1E3A8A",machine:"#14532D",commun:"#374151"};
-const CAT_EMOJI = {Bœuf:"🥩",Porc:"🐷",Agneau:"🐑",Volaille:"🐔",Charcuterie:"🌭",Saucisserie:"🌭",Autre:"📦"};
+const CAT_EMOJI = {Bœuf:"🥩",Porc:"🐷",Agneau:"🐑",Volaille:"🐔",Charcuterie:"🌭",Saucisserie:"🌭",Cuisine:"🍽️","Plat cuisiné":"🥘",Autre:"📦"};
 
 const DEFAULT_TASKS = {
   quotidien:[
@@ -583,6 +589,12 @@ let curFreq = "quotidien";
 let dlcFilter = "tous";
 let editDlcId = null;
 let dlcPhoto = null;
+let dlcPhotos = [];
+const DEFAULT_DUREES = [
+  {nom:"Plat cuisiné", jours:3}, {nom:"Viande hachée", jours:1}, {nom:"Steak haché", jours:2},
+  {nom:"Merguez", jours:3}, {nom:"Saucisse", jours:3}, {nom:"Rôti", jours:3}
+];
+let durees = load("hb_durees", DEFAULT_DUREES);
 let notePhoto = null;
 
 function load(k,def){try{const v=localStorage.getItem(k);return v?JSON.parse(v):def;}catch{return def;}}
@@ -595,6 +607,7 @@ function persist(){
   localStorage.setItem("hb_recette_templates",JSON.stringify(recetteTemplates));
   localStorage.setItem("hb_hist",JSON.stringify(hist));
   localStorage.setItem("hb_actions",JSON.stringify(actions));
+  localStorage.setItem("hb_durees",JSON.stringify(durees));
 }
 
 // ═══════════════════════════════════════════
@@ -646,10 +659,27 @@ const _persistLocal = persist;   // sauvegarde locale seule
 persist = function(){ _persistLocal(); if(!applyingRemote) cloudPush(); };
 
 function cloudPush(){ clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 600); }
+// Les photos restent sur chaque appareil (limite de taille de Firestore) : elles ne sont pas envoyées
+function slim(list){ return list.map(x=>{ const {photo,photos,...r}=x; return r; }); }
+function mergeById(local, remote){
+  const key = x => x.id || JSON.stringify(x);
+  const map = new Map();
+  remote.forEach(x=>map.set(key(x), x));
+  local.forEach(x=>{ if(!map.has(key(x))) map.set(key(x), x); });
+  return [...map.values()];
+}
+// Garde les photos locales quand les données viennent du cloud
+function keepPhotos(newList, oldList){
+  return newList.map(x=>{
+    const o = x.id ? oldList.find(y=>y.id===x.id) : null;
+    if(o && (o.photos||o.photo) && !x.photos && !x.photo) return {...x, photos:o.photos, photo:o.photo};
+    return x;
+  });
+}
 function pushNow(){
   if(!cloudDb) return;
   cloudDb.collection(CLOUD_COL).doc(CLOUD_DOC_ID).set({
-    tasks, dlcList, notes, temperatures, recettes, recetteTemplates, hist, actions,
+    tasks, dlcList: slim(dlcList), notes: slim(notes), temperatures, recettes, recetteTemplates, hist, actions, durees,
     updatedBy: getCurrentUser() || "",
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   }).catch(warnCloud);
@@ -672,17 +702,22 @@ function startCloud(){
     if(!snap.exists){ pushNow(); return; }
     if(snap.metadata.hasPendingWrites) return;
     const d = snap.data();
+    // Première synchro sur cet appareil : on fusionne pour ne rien perdre, puis on envoie
+    const firstSync = !localStorage.getItem("hb_synced_once");
+    const pick = (local, remote) => (!Array.isArray(local) || !Array.isArray(remote)) ? remote : (firstSync ? keepPhotos(mergeById(local, remote), local) : keepPhotos(remote, local));
     applyingRemote = true;
-    if(d.tasks) tasks = d.tasks;
-    if(d.dlcList) dlcList = d.dlcList;
-    if(d.notes) notes = d.notes;
-    if(d.temperatures) temperatures = d.temperatures;
-    if(d.recettes) recettes = d.recettes;
-    if(d.recetteTemplates) recetteTemplates = d.recetteTemplates;
-    if(d.hist) hist = d.hist;
-    if(d.actions) actions = d.actions;
+    if(d.tasks) tasks = pick(tasks, d.tasks);
+    if(d.dlcList) dlcList = pick(dlcList, d.dlcList);
+    if(d.notes) notes = pick(notes, d.notes);
+    if(d.temperatures) temperatures = pick(temperatures, d.temperatures);
+    if(d.recettes) recettes = pick(recettes, d.recettes);
+    if(d.recetteTemplates) recetteTemplates = pick(recetteTemplates, d.recetteTemplates);
+    if(d.hist) hist = firstSync ? mergeById(hist, d.hist).slice(0,100) : d.hist;
+    if(d.actions) actions = pick(actions, d.actions);
+    if(d.durees) durees = firstSync ? mergeById(durees, d.durees) : d.durees;
     _persistLocal();
     applyingRemote = false;
+    if(firstSync){ localStorage.setItem("hb_synced_once", "1"); pushNow(); }
     renderAll();
   }, warnCloud);
 }
@@ -881,7 +916,7 @@ function renderDlc(){
   g.innerHTML=items.map(d=>{
     const s=dlcStatus(d.date);
     return `<div class="dlc-card" onclick="openDlcModal('${d.id}')" style="border-color:${s.color}55">
-      <div class="dlc-thumb">${d.photo?`<img src="${d.photo}" alt=""/>`:CAT_EMOJI[d.cat]||"📦"}</div>
+      <div class="dlc-thumb">${firstPhoto(d)?`<img src="${firstPhoto(d)}" alt=""/>`:(CAT_EMOJI[d.cat]||"📦")}</div>
       <div class="dlc-body">
         <div class="dlc-name">${d.nom}</div>
         <div class="dlc-info">📅 ${new Date(d.date).toLocaleDateString("fr-FR")}</div>
@@ -893,30 +928,91 @@ function renderDlc(){
 }
 
 function openDlcModal(id){
-  editDlcId=id||null; dlcPhoto=null;
+  editDlcId=id||null;
   const d=id?dlcList.find(x=>x.id===id):null;
   document.getElementById("dlc-modal-t").textContent=d?"Modifier le produit":"Ajouter un produit";
   document.getElementById("d-nom").value=d?d.nom:"";
+  document.getElementById("d-prep").value=d?(d.prep||todayISO()):todayISO();
+  document.getElementById("d-duree").value=(d&&d.duree!=null)?d.duree:"";
   document.getElementById("d-date").value=d?d.date:"";
   document.getElementById("d-qte").value=d?(d.qte||""):"";
   document.getElementById("d-cat").value=d?(d.cat||"Bœuf"):"Bœuf";
   document.getElementById("d-notes").value=d?(d.notes||""):"";
-  const prev=document.getElementById("d-photo-prev");
-  if(d&&d.photo){ prev.src=d.photo; prev.style.display="block"; dlcPhoto=d.photo; }
-  else{ prev.style.display="none"; }
+  dlcPhotos = d ? ((d.photos && d.photos.length) ? d.photos.slice() : (d.photo ? [d.photo] : [])) : [];
+  renderDlcPhotos();
+  fillDlcDatalist();
   document.getElementById("d-del-btn").style.display=d?"inline-flex":"none";
   document.getElementById("ov-dlc").classList.add("open");
+}
+
+function todayISO(){ const t=new Date(); t.setMinutes(t.getMinutes()-t.getTimezoneOffset()); return t.toISOString().slice(0,10); }
+function firstPhoto(d){ return (d.photos&&d.photos[0])||d.photo||null; }
+function fillDlcDatalist(){
+  document.getElementById("dl-produits").innerHTML = durees.map(p=>`<option value="${esc(p.nom)}">`).join("");
+}
+function onDlcNomInput(){
+  const nom = document.getElementById("d-nom").value.trim().toLowerCase();
+  const p = durees.find(x=>x.nom.toLowerCase()===nom);
+  if(p){ document.getElementById("d-duree").value = p.jours; calcDlc(); }
+}
+function calcDlc(){
+  const prep = document.getElementById("d-prep").value;
+  const jours = parseInt(document.getElementById("d-duree").value, 10);
+  if(!prep || isNaN(jours)) return;
+  const d = new Date(prep+"T12:00:00");
+  d.setDate(d.getDate()+jours);
+  document.getElementById("d-date").value = d.toISOString().slice(0,10);
+}
+function renderDlcPhotos(){
+  document.getElementById("d-photo-strip").innerHTML =
+    dlcPhotos.map((p,i)=>`<div onclick="event.stopPropagation();removeDlcPhoto(${i})" title="Retirer" style="position:relative;width:70px;height:70px;cursor:pointer">
+        <img src="${p}" style="width:70px;height:70px;object-fit:cover;border-radius:8px"/>
+        <span style="position:absolute;top:-6px;right:-6px;background:#C0392B;color:#fff;border-radius:50%;width:20px;height:20px;font-size:12px;line-height:20px;text-align:center">✕</span>
+      </div>`).join("")
+    + `<div style="width:70px;height:70px;border:2px dashed #d1d5db;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:26px">+</div>`;
+}
+function removeDlcPhoto(i){ dlcPhotos.splice(i,1); renderDlcPhotos(); }
+function addDlcPhotos(inp){
+  const files = [...inp.files];
+  inp.value = "";
+  files.forEach(f=>{
+    const r = new FileReader();
+    r.onload = e => compressImage(e.target.result, 700, 0.6, data=>{ dlcPhotos.push(data); renderDlcPhotos(); });
+    r.readAsDataURL(f);
+  });
+}
+// Réduit la taille des photos pour rester dans la limite de synchronisation
+function compressImage(src, maxSide, quality, cb){
+  const img = new Image();
+  img.onload = ()=>{
+    const k = Math.min(1, maxSide/Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width*k); c.height = Math.round(img.height*k);
+    const ctx = c.getContext && c.getContext("2d");
+    if(!ctx){ cb(src); return; }
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    cb(c.toDataURL("image/jpeg", quality));
+  };
+  img.onerror = ()=>cb(src);
+  img.src = src;
 }
 
 function saveDlc(){
   const nom=document.getElementById("d-nom").value.trim();
   const date=document.getElementById("d-date").value;
-  if(!nom||!date){ toast("⚠️ Nom et date requis"); return; }
-  const item={id:editDlcId||"d"+Date.now(),nom,date,
+  if(!nom||!date){ toast("⚠️ Nom et DLC requis"); return; }
+  const prep=document.getElementById("d-prep").value;
+  const duree=document.getElementById("d-duree").value.trim();
+  const jours=duree===""?NaN:parseInt(duree,10);
+  if(!isNaN(jours)){
+    const i=durees.findIndex(x=>x.nom.toLowerCase()===nom.toLowerCase());
+    if(i>=0) durees[i].jours=jours; else durees.push({nom, jours});
+  }
+  const item={id:editDlcId||"d"+Date.now(), nom, date, prep, duree:isNaN(jours)?null:jours,
     qte:document.getElementById("d-qte").value.trim(),
     cat:document.getElementById("d-cat").value,
     notes:document.getElementById("d-notes").value.trim(),
-    photo:dlcPhoto};
+    photos:dlcPhotos.slice()};
   if(editDlcId){ const i=dlcList.findIndex(x=>x.id===editDlcId); dlcList[i]=item; addHist("📅","DLC modifiée",nom); }
   else{ dlcList.push(item); addHist("📦","Produit ajouté",nom); }
   persist(); closeOv("ov-dlc"); renderAll(); toast("✅ Enregistré");
@@ -1162,9 +1258,15 @@ function renderCal(){
     const isSel = calSelected===ds;
     const dots = getDotsForDate(ds);
     const dotsHtml = dots.map(c=>`<span class="cal-dot" style="background:${c}"></span>`).join("");
+    const names = [
+      ...dlcList.filter(x=>x.date===ds).map(x=>({t:x.nom, c:dlcStatus(x.date).color})),
+      ...actions.filter(a=>a.date===ds).map(a=>({t:a.titre, c:"#7C3AED"}))
+    ];
+    const namesHtml = names.slice(0,2).map(n=>`<div class="cal-name" style="color:${n.c}">${esc(n.t)}</div>`).join("")
+      + (names.length>2 ? `<div class="cal-name" style="color:#6b7280">+${names.length-2} autres</div>` : "");
     html += `<div class="cal-day ${isToday?"today":""} ${isSel&&!isToday?"selected":""}" onclick="selectDay('${ds}')">
       <div class="cal-day-num">${d}</div>
-      <div class="cal-dots">${dotsHtml}</div>
+      <div class="cal-dots">${dotsHtml}</div>${namesHtml}
     </div>`;
   }
 
